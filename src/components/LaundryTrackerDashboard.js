@@ -47,7 +47,7 @@ const LaundryTrackerDashboard = () => {
   
   const handleClaimMachine = (machine) => {
     if (machines[machine].status === 'available') {
-      const userName = prompt('Enter your name or apartment number:');
+      const userName = prompt('Enter your name:');
       if (userName) {
         // Set max time limits
         const maxTime = machine === 'washer' ? 60 : 120;
