@@ -1,22 +1,51 @@
+// LaundryTrackerDashboard.jsx
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 
 const LaundryTrackerDashboard = () => {
   const [machines, setMachines] = useState({
     washer: { status: 'available', user: null, timeRemaining: 0 },
     dryer: { status: 'available', user: null, timeRemaining: 0 }
   });
+  const [loading, setLoading] = useState(true);
 
-  // Timer effect to decrease remaining time
+  // Fetch initial machine data and subscribe to changes
   useEffect(() => {
-    const timer = setInterval(() => {
+    fetchMachines();
+    
+    // Set up real-time subscription
+    const machineSubscription = supabase
+      .channel('machines-channel')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'machines' 
+      }, handleRealtimeUpdate)
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(machineSubscription);
+    };
+  }, []);
+
+  // Timer effect to decrease remaining time and update database
+  useEffect(() => {
+    if (loading) return;
+    
+    const timer = setInterval(async () => {
       setMachines(prevMachines => {
         const updatedMachines = { ...prevMachines };
+        let changedMachines = [];
         
         // Washer timer
         if (updatedMachines.washer.status === 'in-use' && updatedMachines.washer.timeRemaining > 0) {
           updatedMachines.washer.timeRemaining -= 1;
           if (updatedMachines.washer.timeRemaining === 0) {
             updatedMachines.washer.status = 'complete';
+            updateMachineInDatabase('washer', updatedMachines.washer);
+          } else if (updatedMachines.washer.timeRemaining % 15 === 0) {
+            // Update database every 15 seconds to reduce writes
+            updateMachineInDatabase('washer', updatedMachines.washer);
           }
         }
         
@@ -25,6 +54,10 @@ const LaundryTrackerDashboard = () => {
           updatedMachines.dryer.timeRemaining -= 1;
           if (updatedMachines.dryer.timeRemaining === 0) {
             updatedMachines.dryer.status = 'complete';
+            updateMachineInDatabase('dryer', updatedMachines.dryer);
+          } else if (updatedMachines.dryer.timeRemaining % 15 === 0) {
+            // Update database every 15 seconds to reduce writes
+            updateMachineInDatabase('dryer', updatedMachines.dryer);
           }
         }
         
@@ -34,7 +67,69 @@ const LaundryTrackerDashboard = () => {
 
     // Cleanup interval on component unmount
     return () => clearInterval(timer);
-  }, []);
+  }, [loading]);
+  
+  const handleRealtimeUpdate = (payload) => {
+    const { new: updatedMachine } = payload;
+    if (updatedMachine) {
+      setMachines(prevMachines => ({
+        ...prevMachines,
+        [updatedMachine.machine_type]: {
+          status: updatedMachine.status,
+          user: updatedMachine.user_name,
+          timeRemaining: updatedMachine.time_remaining
+        }
+      }));
+    }
+  };
+
+  const fetchMachines = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('machines')
+        .select('*');
+        
+      if (error) {
+        throw error;
+      }
+      
+      if (data && data.length > 0) {
+        const machinesObj = {};
+        data.forEach(machine => {
+          machinesObj[machine.machine_type] = {
+            status: machine.status,
+            user: machine.user_name,
+            timeRemaining: machine.time_remaining
+          };
+        });
+        setMachines(machinesObj);
+      }
+    } catch (error) {
+      console.error('Error fetching machines:', error);
+      alert('Failed to load laundry machine status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateMachineInDatabase = async (machineType, machineData) => {
+    try {
+      const { error } = await supabase
+        .from('machines')
+        .update({
+          status: machineData.status,
+          user_name: machineData.user,
+          time_remaining: machineData.timeRemaining,
+          last_updated: new Date().toISOString()
+        })
+        .eq('machine_type', machineType);
+        
+      if (error) throw error;
+    } catch (error) {
+      console.error(`Error updating ${machineType}:`, error);
+    }
+  };
   
   const getStatusColor = (status) => {
     switch(status) {
@@ -45,7 +140,7 @@ const LaundryTrackerDashboard = () => {
     }
   };
   
-  const handleClaimMachine = (machine) => {
+  const handleClaimMachine = async (machine) => {
     if (machines[machine].status === 'available') {
       const userName = prompt('Enter your name:');
       if (userName) {
@@ -55,14 +150,23 @@ const LaundryTrackerDashboard = () => {
         
         // Validate time input
         if (cycleTime > 0 && cycleTime <= maxTime) {
-          setMachines(prevMachines => ({
-            ...prevMachines,
-            [machine]: {
-              status: 'in-use',
-              user: userName,
-              timeRemaining: cycleTime * 60 // Convert to seconds
-            }
-          }));
+          const updatedMachine = {
+            status: 'in-use',
+            user: userName,
+            timeRemaining: cycleTime * 60 // Convert to seconds
+          };
+          
+          try {
+            await updateMachineInDatabase(machine, updatedMachine);
+            
+            // Optimistic update
+            setMachines(prevMachines => ({
+              ...prevMachines,
+              [machine]: updatedMachine
+            }));
+          } catch (error) {
+            alert('Failed to claim machine. Please try again.');
+          }
         } else {
           alert(`Please enter a valid time between 1 and ${maxTime} minutes.`);
         }
@@ -70,21 +174,30 @@ const LaundryTrackerDashboard = () => {
     }
   };
 
-  const handleReleaseMachine = (machineType) => {
+  const handleReleaseMachine = async (machineType) => {
     if (['washer', 'dryer'].includes(machineType)) {
       const currentStatus = machines[machineType].status;
       
       // Allow release for both in-use and complete statuses
       if (currentStatus === 'in-use' || currentStatus === 'complete') {
         if (window.confirm(`Are you sure you want to release the ${machineType}?`)) {
-          setMachines(prevMachines => ({
-            ...prevMachines,
-            [machineType]: {
-              status: 'available',
-              user: null,
-              timeRemaining: 0
-            }
-          }));
+          const updatedMachine = {
+            status: 'available',
+            user: null,
+            timeRemaining: 0
+          };
+          
+          try {
+            await updateMachineInDatabase(machineType, updatedMachine);
+            
+            // Optimistic update
+            setMachines(prevMachines => ({
+              ...prevMachines,
+              [machineType]: updatedMachine
+            }));
+          } catch (error) {
+            alert('Failed to release machine. Please try again.');
+          }
         }
       }
     }
@@ -96,6 +209,14 @@ const LaundryTrackerDashboard = () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
+  
+  if (loading) {
+    return (
+      <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg flex justify-center">
+        <p>Loading laundry status...</p>
+      </div>
+    );
+  }
   
   return (
     <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg">
