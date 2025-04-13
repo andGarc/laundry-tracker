@@ -8,6 +8,27 @@ const LaundryTrackerDashboard = () => {
     dryer: { status: 'available', user: null, timeRemaining: 0 }
   });
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Set up user identity on component mount
+  useEffect(() => {
+    // Try to get user ID from local storage
+    const userId = localStorage.getItem('laundryUserId');
+    const userName = localStorage.getItem('laundryUserName');
+    
+    if (userId && userName) {
+      setCurrentUser({ id: userId, name: userName });
+    } else {
+      // First time visitor - prompt for name
+      const newUserName = prompt('Welcome! Please enter your name to use the laundry tracker:');
+      if (newUserName) {
+        const newUserId = `user_${Date.now()}`;
+        localStorage.setItem('laundryUserId', newUserId);
+        localStorage.setItem('laundryUserName', newUserName);
+        setCurrentUser({ id: newUserId, name: newUserName });
+      }
+    }
+  }, []);
 
   // Fetch initial machine data and subscribe to changes
   useEffect(() => {
@@ -35,7 +56,6 @@ const LaundryTrackerDashboard = () => {
     const timer = setInterval(async () => {
       setMachines(prevMachines => {
         const updatedMachines = { ...prevMachines };
-        let changedMachines = [];
         
         // Washer timer
         if (updatedMachines.washer.status === 'in-use' && updatedMachines.washer.timeRemaining > 0) {
@@ -77,6 +97,7 @@ const LaundryTrackerDashboard = () => {
         [updatedMachine.machine_type]: {
           status: updatedMachine.status,
           user: updatedMachine.user_name,
+          userId: updatedMachine.user_id,
           timeRemaining: updatedMachine.time_remaining
         }
       }));
@@ -100,6 +121,7 @@ const LaundryTrackerDashboard = () => {
           machinesObj[machine.machine_type] = {
             status: machine.status,
             user: machine.user_name,
+            userId: machine.user_id,
             timeRemaining: machine.time_remaining
           };
         });
@@ -120,6 +142,7 @@ const LaundryTrackerDashboard = () => {
         .update({
           status: machineData.status,
           user_name: machineData.user,
+          user_id: machineData.userId,
           time_remaining: machineData.timeRemaining,
           last_updated: new Date().toISOString()
         })
@@ -140,43 +163,62 @@ const LaundryTrackerDashboard = () => {
     }
   };
   
+  // Check if current user can interact with the machine
+  const canUserInteract = (machine) => {
+    if (!currentUser) return false;
+    if (machines[machine].status === 'available') return true;
+    return machines[machine].userId === currentUser.id;
+  };
+  
   const handleClaimMachine = async (machine) => {
+    if (!currentUser) {
+      alert('Please refresh the page and enter your name to use the laundry tracker.');
+      return;
+    }
+    
     if (machines[machine].status === 'available') {
-      const userName = prompt('Enter your name:');
-      if (userName) {
-        // Set max time limits
-        const maxTime = machine === 'washer' ? 60 : 120;
-        const cycleTime = parseInt(prompt(`Enter estimated cycle time in minutes (max ${maxTime}):`, '30'));
+      // Set max time limits
+      const maxTime = machine === 'washer' ? 60 : 120;
+      const cycleTime = parseInt(prompt(`Enter estimated cycle time in minutes (max ${maxTime}):`, '30'));
+      
+      // Validate time input
+      if (cycleTime > 0 && cycleTime <= maxTime) {
+        const updatedMachine = {
+          status: 'in-use',
+          user: currentUser.name,
+          userId: currentUser.id,
+          timeRemaining: cycleTime * 60 // Convert to seconds
+        };
         
-        // Validate time input
-        if (cycleTime > 0 && cycleTime <= maxTime) {
-          const updatedMachine = {
-            status: 'in-use',
-            user: userName,
-            timeRemaining: cycleTime * 60 // Convert to seconds
-          };
+        try {
+          await updateMachineInDatabase(machine, updatedMachine);
           
-          try {
-            await updateMachineInDatabase(machine, updatedMachine);
-            
-            // Optimistic update
-            setMachines(prevMachines => ({
-              ...prevMachines,
-              [machine]: updatedMachine
-            }));
-          } catch (error) {
-            alert('Failed to claim machine. Please try again.');
-          }
-        } else {
-          alert(`Please enter a valid time between 1 and ${maxTime} minutes.`);
+          // Optimistic update
+          setMachines(prevMachines => ({
+            ...prevMachines,
+            [machine]: updatedMachine
+          }));
+        } catch (error) {
+          alert('Failed to claim machine. Please try again.');
         }
+      } else {
+        alert(`Please enter a valid time between 1 and ${maxTime} minutes.`);
       }
     }
   };
 
   const handleReleaseMachine = async (machineType) => {
+    if (!currentUser) return;
+    
     if (['washer', 'dryer'].includes(machineType)) {
-      const currentStatus = machines[machineType].status;
+      const machine = machines[machineType];
+      const currentStatus = machine.status;
+      
+      // Check if the current user owns this machine
+      if (machine.userId !== currentUser.id) {
+        alert(`Only ${machine.user} can release this ${machineType}.`);
+        return;
+      }
       
       // Allow release for both in-use and complete statuses
       if (currentStatus === 'in-use' || currentStatus === 'complete') {
@@ -184,6 +226,7 @@ const LaundryTrackerDashboard = () => {
           const updatedMachine = {
             status: 'available',
             user: null,
+            userId: null,
             timeRemaining: 0
           };
           
@@ -222,6 +265,12 @@ const LaundryTrackerDashboard = () => {
     <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg">
       <h1 className="text-2xl font-bold text-center mb-6">Laundry Status</h1>
       
+      {currentUser && (
+        <div className="mb-4 text-center text-sm bg-blue-50 p-2 rounded">
+          Logged in as: <span className="font-semibold">{currentUser.name}</span>
+        </div>
+      )}
+      
       <div className="space-y-6">
         {/* Washer */}
         <div className="border rounded-lg overflow-hidden">
@@ -248,6 +297,7 @@ const LaundryTrackerDashboard = () => {
                 <button 
                   onClick={() => handleClaimMachine('washer')}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+                  disabled={!currentUser}
                 >
                   Claim
                 </button>
@@ -256,9 +306,14 @@ const LaundryTrackerDashboard = () => {
                   <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
                   <button 
                     onClick={() => handleReleaseMachine('washer')}
-                    className="bg-blue-200 hover:bg-blue-300 text-blue-700 px-3 py-1 rounded text-sm"
+                    className={`px-3 py-1 rounded text-sm ${
+                      canUserInteract('washer')
+                        ? "bg-blue-200 hover:bg-blue-300 text-blue-700"
+                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    }`}
+                    disabled={!canUserInteract('washer')}
                   >
-                    Pick Up
+                    {canUserInteract('washer') ? 'Pick Up' : `Reserved for ${machines.washer.user}`}
                   </button>
                 </div>
               ) : (
@@ -266,12 +321,16 @@ const LaundryTrackerDashboard = () => {
                   <div className="text-gray-500 text-sm mb-1">
                     Available in {formatTime(machines.washer.timeRemaining)}
                   </div>
-                  <button 
-                    onClick={() => handleReleaseMachine('washer')}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"
-                  >
-                    Early Release
-                  </button>
+                  {canUserInteract('washer') ? (
+                    <button 
+                      onClick={() => handleReleaseMachine('washer')}
+                      className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"
+                    >
+                      Early Release
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-500 italic">Reserved for {machines.washer.user}</span>
+                  )}
                 </div>
               )}
             </div>
@@ -303,6 +362,7 @@ const LaundryTrackerDashboard = () => {
                 <button 
                   onClick={() => handleClaimMachine('dryer')}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+                  disabled={!currentUser}
                 >
                   Claim
                 </button>
@@ -311,9 +371,14 @@ const LaundryTrackerDashboard = () => {
                   <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
                   <button 
                     onClick={() => handleReleaseMachine('dryer')}
-                    className="bg-blue-200 hover:bg-blue-300 text-blue-700 px-3 py-1 rounded text-sm"
+                    className={`px-3 py-1 rounded text-sm ${
+                      canUserInteract('dryer')
+                        ? "bg-blue-200 hover:bg-blue-300 text-blue-700"
+                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                    }`}
+                    disabled={!canUserInteract('dryer')}
                   >
-                    Pick Up
+                    {canUserInteract('dryer') ? 'Pick Up' : `Reserved for ${machines.dryer.user}`}
                   </button>
                 </div>
               ) : (
@@ -321,12 +386,16 @@ const LaundryTrackerDashboard = () => {
                   <div className="text-gray-500 text-sm mb-1">
                     Available in {formatTime(machines.dryer.timeRemaining)}
                   </div>
-                  <button 
-                    onClick={() => handleReleaseMachine('dryer')}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"
-                  >
-                    Early Release
-                  </button>
+                  {canUserInteract('dryer') ? (
+                    <button 
+                      onClick={() => handleReleaseMachine('dryer')}
+                      className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm"
+                    >
+                      Early Release
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-500 italic">Reserved for {machines.dryer.user}</span>
+                  )}
                 </div>
               )}
             </div>
