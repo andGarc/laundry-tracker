@@ -1,70 +1,110 @@
-# Getting Started with Create React App
+# Laundry Tracker App
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A real-time application for tracking and managing shared laundry machines in multi-unit buildings or dormitories.
 
-## Available Scripts
+## Overview
 
-In the project directory, you can run:
+The Laundry Tracker App helps users coordinate shared laundry machine usage by providing a real-time dashboard showing machine availability, current usage, and remaining cycle times. It reduces the hassle of checking physical machines and helps prevent laundry from being left unattended.
 
-### `npm start`
+## Features
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Real-time Tracking**: Monitor washer and dryer availability in real-time
+- **Machine Claiming**: Users can claim a machine, set timer duration, and release when finished
+- **User Identification**: Simple user registration with names stored in local storage
+- **Countdown Timers**: Accurate countdown of remaining time for each machine
+- **Browser Notifications**: Receive alerts when your laundry cycle is almost complete or finished
+- **Multi-user Coordination**: Prevents conflicts with machine usage through user identification
+- **Mobile-Friendly UI**: Responsive design works on all devices
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Tech Stack
 
-### `npm test`
+- React.js for the frontend
+- Supabase for real-time database
+- TailwindCSS for styling
+- Browser Notification API
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Getting Started
 
-### `npm run build`
+### Prerequisites
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- Node.js (v14+)
+- npm or yarn
+- Supabase account
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Installation
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/laundry-tracker.git
+cd laundry-tracker
+```
 
-### `npm run eject`
+2. Install dependencies
+```bash
+npm install
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+3. Create a `.env` file in the root directory with your Supabase credentials
+```
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+4. Set up Supabase database with the following schema:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```sql
+CREATE TABLE machines (
+  id SERIAL PRIMARY KEY,
+  machine_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  user_name TEXT,
+  user_id TEXT,
+  time_remaining INTEGER,
+  last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+-- Insert initial data
+INSERT INTO machines (machine_type, status, user_name, user_id, time_remaining)
+VALUES ('washer', 'available', NULL, NULL, 0);
 
-## Learn More
+INSERT INTO machines (machine_type, status, user_name, user_id, time_remaining)
+VALUES ('dryer', 'available', NULL, NULL, 0);
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+5. Start the development server
+```bash
+npm start
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Usage
 
-### Code Splitting
+1. **First Visit**: Enter your name when prompted
+2. **Claiming a Machine**: 
+   - Click the "Claim" button on an available machine
+   - Enter the estimated cycle time (max 60 min for washer, 120 min for dryer)
+3. **Tracking Progress**: The app will count down remaining time
+4. **Releasing a Machine**:
+   - When cycle completes, the status changes to "Ready for pickup"
+   - Click "Pick Up" to release the machine for others
+   - You can also click "Early Release" to free the machine before the cycle ends
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Notification System
 
-### Analyzing the Bundle Size
+1. Click "Enable Notifications" to receive alerts
+2. You'll receive notifications when:
+   - Your laundry has 10 minutes remaining
+   - Your laundry cycle is complete
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## Deployment
 
-### Making a Progressive Web App
+You can deploy this app to any static hosting service:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```bash
+npm run build
+```
 
-### Advanced Configuration
+Then upload the contents of the `build` directory to your hosting provider.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Contributing
 
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Contributions are welcome! Please feel free to submit a Pull Request.
