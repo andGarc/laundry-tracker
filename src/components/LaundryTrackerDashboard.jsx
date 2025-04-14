@@ -4,13 +4,18 @@ import { supabase } from '../supabaseClient';
 
 const LaundryTrackerDashboard = () => {
   const [machines, setMachines] = useState({
-    washer: { status: 'available', user: null, timeRemaining: 0 },
-    dryer: { status: 'available', user: null, timeRemaining: 0 }
+    washer: { status: 'available', user: null, userId: null, timeRemaining: 0 },
+    dryer: { status: 'available', user: null, userId: null, timeRemaining: 0 }
   });
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [notificationPermission, setNotificationPermission] = useState('default');
+  const [notifications, setNotifications] = useState({
+    washer: { tenMinWarning: false, complete: false },
+    dryer: { tenMinWarning: false, complete: false }
+  });
 
-  // Set up user identity on component mount
+  // Set up user identity and notifications on component mount
   useEffect(() => {
     // Try to get user ID from local storage
     const userId = localStorage.getItem('laundryUserId');
@@ -27,6 +32,11 @@ const LaundryTrackerDashboard = () => {
         localStorage.setItem('laundryUserName', newUserName);
         setCurrentUser({ id: newUserId, name: newUserName });
       }
+    }
+
+    // Check notification permission
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
     }
   }, []);
 
@@ -60,6 +70,28 @@ const LaundryTrackerDashboard = () => {
         // Washer timer
         if (updatedMachines.washer.status === 'in-use' && updatedMachines.washer.timeRemaining > 0) {
           updatedMachines.washer.timeRemaining -= 1;
+          
+          // Check for notifications
+          if (currentUser && updatedMachines.washer.userId === currentUser.id) {
+            // 10 minute warning notification
+            if (updatedMachines.washer.timeRemaining === 600 && !notifications.washer.tenMinWarning) {
+              sendNotification('Washer', '10 minutes remaining on your laundry!');
+              setNotifications(prev => ({
+                ...prev,
+                washer: { ...prev.washer, tenMinWarning: true }
+              }));
+            }
+            
+            // Completion notification
+            if (updatedMachines.washer.timeRemaining === 0 && !notifications.washer.complete) {
+              sendNotification('Washer', 'Your laundry is done!');
+              setNotifications(prev => ({
+                ...prev,
+                washer: { ...prev.washer, complete: true }
+              }));
+            }
+          }
+          
           if (updatedMachines.washer.timeRemaining === 0) {
             updatedMachines.washer.status = 'complete';
             updateMachineInDatabase('washer', updatedMachines.washer);
@@ -72,6 +104,28 @@ const LaundryTrackerDashboard = () => {
         // Dryer timer
         if (updatedMachines.dryer.status === 'in-use' && updatedMachines.dryer.timeRemaining > 0) {
           updatedMachines.dryer.timeRemaining -= 1;
+          
+          // Check for notifications
+          if (currentUser && updatedMachines.dryer.userId === currentUser.id) {
+            // 10 minute warning notification
+            if (updatedMachines.dryer.timeRemaining === 600 && !notifications.dryer.tenMinWarning) {
+              sendNotification('Dryer', '10 minutes remaining on your laundry!');
+              setNotifications(prev => ({
+                ...prev,
+                dryer: { ...prev.dryer, tenMinWarning: true }
+              }));
+            }
+            
+            // Completion notification
+            if (updatedMachines.dryer.timeRemaining === 0 && !notifications.dryer.complete) {
+              sendNotification('Dryer', 'Your laundry is done!');
+              setNotifications(prev => ({
+                ...prev,
+                dryer: { ...prev.dryer, complete: true }
+              }));
+            }
+          }
+          
           if (updatedMachines.dryer.timeRemaining === 0) {
             updatedMachines.dryer.status = 'complete';
             updateMachineInDatabase('dryer', updatedMachines.dryer);
@@ -87,7 +141,30 @@ const LaundryTrackerDashboard = () => {
 
     // Cleanup interval on component unmount
     return () => clearInterval(timer);
-  }, [loading]);
+  }, [loading, currentUser, notifications]);
+  
+  const sendNotification = (machine, message) => {
+    // Browser notification
+    if (notificationPermission === 'granted') {
+      new Notification(`Laundry Alert: ${machine}`, {
+        body: message,
+        icon: '/favicon.ico' // Replace with your app's icon
+      });
+    } else {
+      // Fallback for when notifications aren't available
+      console.log(`Notification would have been sent: ${machine} - ${message}`);
+      // Could implement in-app notifications here
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      return permission;
+    }
+    return 'denied';
+  };
   
   const handleRealtimeUpdate = (payload) => {
     const { new: updatedMachine } = payload;
@@ -101,6 +178,14 @@ const LaundryTrackerDashboard = () => {
           timeRemaining: updatedMachine.time_remaining
         }
       }));
+      
+      // Reset notification flags when a machine becomes available
+      if (updatedMachine.status === 'available') {
+        setNotifications(prev => ({
+          ...prev,
+          [updatedMachine.machine_type]: { tenMinWarning: false, complete: false }
+        }));
+      }
     }
   };
 
@@ -176,6 +261,11 @@ const LaundryTrackerDashboard = () => {
       return;
     }
     
+    // Request notification permission when claiming a machine
+    if (notificationPermission === 'default') {
+      await requestNotificationPermission();
+    }
+    
     if (machines[machine].status === 'available') {
       // Set max time limits
       const maxTime = machine === 'washer' ? 60 : 120;
@@ -192,6 +282,12 @@ const LaundryTrackerDashboard = () => {
         
         try {
           await updateMachineInDatabase(machine, updatedMachine);
+          
+          // Reset notification flags
+          setNotifications(prev => ({
+            ...prev,
+            [machine]: { tenMinWarning: false, complete: false }
+          }));
           
           // Optimistic update
           setMachines(prevMachines => ({
@@ -233,6 +329,12 @@ const LaundryTrackerDashboard = () => {
           try {
             await updateMachineInDatabase(machineType, updatedMachine);
             
+            // Reset notification flags
+            setNotifications(prev => ({
+              ...prev,
+              [machineType]: { tenMinWarning: false, complete: false }
+            }));
+            
             // Optimistic update
             setMachines(prevMachines => ({
               ...prevMachines,
@@ -267,7 +369,20 @@ const LaundryTrackerDashboard = () => {
       
       {currentUser && (
         <div className="mb-4 text-center text-sm bg-blue-50 p-2 rounded">
-          Logged in as: <span className="font-semibold">{currentUser.name}</span>
+          <p className="font-semibold mb-1">{currentUser.name}</p>
+          
+          {notificationPermission !== 'granted' && (
+            <button
+              onClick={requestNotificationPermission}
+              className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded"
+            >
+              Enable Notifications
+            </button>
+          )}
+          
+          {notificationPermission === 'granted' && (
+            <p className="text-xs text-green-600">Notifications enabled</p>
+          )}
         </div>
       )}
       
