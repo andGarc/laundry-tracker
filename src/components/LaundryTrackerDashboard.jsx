@@ -1,6 +1,7 @@
 // LaundryTrackerDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import HowToUseModal from './HowToUseModal'; // Import the new component
 
 const LaundryTrackerDashboard = () => {
   const [machines, setMachines] = useState({
@@ -14,6 +15,7 @@ const LaundryTrackerDashboard = () => {
     washer: { tenMinWarning: false, complete: false },
     dryer: { tenMinWarning: false, complete: false }
   });
+  const [showHowToUse, setShowHowToUse] = useState(false); // State for How To Use modal
 
   // Set up user identity and notifications on component mount
   useEffect(() => {
@@ -365,7 +367,24 @@ const LaundryTrackerDashboard = () => {
   
   return (
     <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg">
-      <h1 className="text-2xl font-bold text-center mb-6">Laundry Status</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Laundry Status</h1>
+        <button 
+          onClick={() => setShowHowToUse(true)}
+          className="text-blue-500 hover:text-blue-700 text-sm flex items-center"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          How to Use
+        </button>
+      </div>
+      
+      {/* Show the How To Use modal */}
+      <HowToUseModal 
+        isOpen={showHowToUse} 
+        onClose={() => setShowHowToUse(false)} 
+      />
       
       {currentUser && (
         <div className="mb-4 text-center text-sm bg-blue-50 p-2 rounded">
