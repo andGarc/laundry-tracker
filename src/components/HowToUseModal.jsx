@@ -11,7 +11,7 @@ const HowToUseModal = ({ isOpen, onClose }) => {
   };
   
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto"
       onClick={handleBackdropClick}
     >
@@ -19,8 +19,8 @@ const HowToUseModal = ({ isOpen, onClose }) => {
         <div className="sticky top-0 bg-white p-3 border-b z-10">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-bold">How to Use Laundry Tracker</h2>
-            <button 
-              onClick={onClose} 
+            <button
+              onClick={onClose}
               className="text-gray-500 hover:text-gray-700 p-2"
               aria-label="Close modal"
             >
@@ -30,7 +30,6 @@ const HowToUseModal = ({ isOpen, onClose }) => {
             </button>
           </div>
         </div>
-        
         <div className="p-4">
           <h3 className="font-semibold text-base mb-2">Getting Started</h3>
           <ol className="list-decimal pl-5 mb-4 space-y-1 text-sm">
@@ -60,10 +59,13 @@ const HowToUseModal = ({ isOpen, onClose }) => {
             <li>The dryer has a max cycle time of 120 minutes</li>
             <li>You can release a machine early if needed</li>
           </ul>
+          
+          <div className="p-3 mt-2 bg-blue-50 rounded-md border border-blue-100">
+            <p className="text-sm"><strong>This system only works if everyone uses it.</strong> Tell your friends about the app so we can all benefit! The more people who use it, the more accurate it becomes.</p>
+          </div>
         </div>
-        
         <div className="p-3 border-t flex justify-end">
-          <button 
+          <button
             onClick={onClose}
             className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm"
           >
