@@ -81,19 +81,12 @@ npm start
 1. **First Visit**: Enter your name when prompted
 2. **Claiming a Machine**: 
    - Click the "Claim" button on an available machine
-   - Enter the estimated cycle time (max 60 min for washer, 120 min for dryer)
+   - Enter the estimated cycle time
 3. **Tracking Progress**: The app will count down remaining time
 4. **Releasing a Machine**:
    - When cycle completes, the status changes to "Ready for pickup"
    - Click "Pick Up" to release the machine for others
    - You can also click "Early Release" to free the machine before the cycle ends
-
-## Notification System
-
-1. Click "Enable Notifications" to receive alerts
-2. You'll receive notifications when:
-   - Your laundry has 10 minutes remaining
-   - Your laundry cycle is complete
 
 ## Deployment
 
