@@ -9,33 +9,13 @@ const LaundryTrackerDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
-  const [notificationPermission, setNotificationPermission] = useState('default');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [browserNotificationsSupported, setBrowserNotificationsSupported] = useState(false);
-  const [notifications, setNotifications] = useState({
-    washer: { tenMinWarning: false, complete: false },
-    dryer: { tenMinWarning: false, complete: false }
-  });
   const [showHowToUse, setShowHowToUse] = useState(false);
-  // For in-app notifications
-  const [inAppNotifications, setInAppNotifications] = useState([]);
-  const notificationTimeoutRef = useRef(null);
 
-  // Set up user identity and notifications on component mount
+  // Set up user identity on component mount
   useEffect(() => {
-    // Check if browser notifications are supported
-    const isNotificationSupported = 'Notification' in window;
-    setBrowserNotificationsSupported(isNotificationSupported);
-
     // Try to get user ID from local storage
     const userId = localStorage.getItem('laundryUserId');
     const userName = localStorage.getItem('laundryUserName');
-    
-    // Get notification preferences from local storage
-    const storedNotificationPref = localStorage.getItem('laundryNotificationsEnabled');
-    if (storedNotificationPref !== null) {
-      setNotificationsEnabled(storedNotificationPref === 'true');
-    }
     
     if (userId && userName) {
       setCurrentUser({ id: userId, name: userName });
@@ -49,25 +29,6 @@ const LaundryTrackerDashboard = () => {
         setCurrentUser({ id: newUserId, name: newUserName });
       }
     }
-
-    // Check notification permission if supported
-    if (isNotificationSupported) {
-      setNotificationPermission(Notification.permission);
-    }
-  }, []);
-
-  // Save notification preference when it changes
-  useEffect(() => {
-    localStorage.setItem('laundryNotificationsEnabled', notificationsEnabled.toString());
-  }, [notificationsEnabled]);
-
-  // Cleanup notification timeouts when component unmounts
-  useEffect(() => {
-    return () => {
-      if (notificationTimeoutRef.current) {
-        clearTimeout(notificationTimeoutRef.current);
-      }
-    };
   }, []);
 
   // Fetch initial machine data and subscribe to changes
@@ -101,27 +62,6 @@ const LaundryTrackerDashboard = () => {
         if (updatedMachines.washer.status === 'in-use' && updatedMachines.washer.timeRemaining > 0) {
           updatedMachines.washer.timeRemaining -= 1;
           
-          // Check for notifications if they're enabled
-          if (notificationsEnabled && currentUser && updatedMachines.washer.userId === currentUser.id) {
-            // 10 minute warning notification
-            if (updatedMachines.washer.timeRemaining === 600 && !notifications.washer.tenMinWarning) {
-              sendNotification('Washer', '10 minutes remaining on your laundry!');
-              setNotifications(prev => ({
-                ...prev,
-                washer: { ...prev.washer, tenMinWarning: true }
-              }));
-            }
-            
-            // Completion notification
-            if (updatedMachines.washer.timeRemaining === 0 && !notifications.washer.complete) {
-              sendNotification('Washer', 'Your laundry is done!');
-              setNotifications(prev => ({
-                ...prev,
-                washer: { ...prev.washer, complete: true }
-              }));
-            }
-          }
-          
           if (updatedMachines.washer.timeRemaining === 0) {
             updatedMachines.washer.status = 'complete';
             updateMachineInDatabase('washer', updatedMachines.washer);
@@ -134,27 +74,6 @@ const LaundryTrackerDashboard = () => {
         // Dryer timer
         if (updatedMachines.dryer.status === 'in-use' && updatedMachines.dryer.timeRemaining > 0) {
           updatedMachines.dryer.timeRemaining -= 1;
-          
-          // Check for notifications if they're enabled
-          if (notificationsEnabled && currentUser && updatedMachines.dryer.userId === currentUser.id) {
-            // 10 minute warning notification
-            if (updatedMachines.dryer.timeRemaining === 600 && !notifications.dryer.tenMinWarning) {
-              sendNotification('Dryer', '10 minutes remaining on your laundry!');
-              setNotifications(prev => ({
-                ...prev,
-                dryer: { ...prev.dryer, tenMinWarning: true }
-              }));
-            }
-            
-            // Completion notification
-            if (updatedMachines.dryer.timeRemaining === 0 && !notifications.dryer.complete) {
-              sendNotification('Dryer', 'Your laundry is done!');
-              setNotifications(prev => ({
-                ...prev,
-                dryer: { ...prev.dryer, complete: true }
-              }));
-            }
-          }
           
           if (updatedMachines.dryer.timeRemaining === 0) {
             updatedMachines.dryer.status = 'complete';
@@ -171,77 +90,7 @@ const LaundryTrackerDashboard = () => {
 
     // Cleanup interval on component unmount
     return () => clearInterval(timer);
-  }, [loading, currentUser, notifications, notificationsEnabled]);
-  
-  const sendNotification = (machine, message) => {
-    // Only send if notifications are enabled
-    if (!notificationsEnabled) return;
-    
-    // Browser notification if supported and permission granted
-    if (browserNotificationsSupported && notificationPermission === 'granted') {
-      new Notification(`Laundry Alert: ${machine}`, {
-        body: message,
-        icon: '/favicon.ico' // Replace with your app's icon
-      });
-    } else {
-      // Fallback to in-app notification
-      const newNotification = {
-        id: Date.now(),
-        title: `${machine}`,
-        message: message,
-        timestamp: new Date()
-      };
-      
-      setInAppNotifications(prev => [newNotification, ...prev.slice(0, 2)]); // Keep only last 3 notifications
-      
-      // Auto-dismiss in-app notification after 10 seconds
-      if (notificationTimeoutRef.current) {
-        clearTimeout(notificationTimeoutRef.current);
-      }
-      
-      notificationTimeoutRef.current = setTimeout(() => {
-        setInAppNotifications(prev => prev.filter(n => n.id !== newNotification.id));
-      }, 10000);
-    }
-  };
-
-  const requestNotificationPermission = async () => {
-    if (browserNotificationsSupported) {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-      
-      // If permission was granted, make sure notifications are enabled
-      if (permission === 'granted') {
-        setNotificationsEnabled(true);
-      }
-      
-      return permission;
-    }
-    
-    // If notifications aren't supported, just enable in-app notifications
-    setNotificationsEnabled(true);
-    return 'denied';
-  };
-  
-  // Toggle notifications on/off
-  const toggleNotifications = () => {
-    // If browser notifications are supported and aren't granted yet but we're turning them on
-    if (browserNotificationsSupported && notificationPermission !== 'granted' && !notificationsEnabled) {
-      requestNotificationPermission().then((permission) => {
-        if (permission === 'granted' || !browserNotificationsSupported) {
-          setNotificationsEnabled(true);
-        }
-      });
-    } else {
-      // Otherwise just toggle the current state
-      setNotificationsEnabled(!notificationsEnabled);
-    }
-  };
-  
-  // Dismiss a specific in-app notification
-  const dismissNotification = (notificationId) => {
-    setInAppNotifications(prev => prev.filter(n => n.id !== notificationId));
-  };
+  }, [loading, currentUser]);
   
   const handleRealtimeUpdate = (payload) => {
     const { new: updatedMachine } = payload;
@@ -255,14 +104,6 @@ const LaundryTrackerDashboard = () => {
           timeRemaining: updatedMachine.time_remaining
         }
       }));
-      
-      // Reset notification flags when a machine becomes available
-      if (updatedMachine.status === 'available') {
-        setNotifications(prev => ({
-          ...prev,
-          [updatedMachine.machine_type]: { tenMinWarning: false, complete: false }
-        }));
-      }
     }
   };
 
@@ -338,16 +179,10 @@ const LaundryTrackerDashboard = () => {
       return;
     }
     
-    // Request notification permission when claiming a machine if notifications are enabled
-    // and browser notifications are supported
-    if (notificationsEnabled && browserNotificationsSupported && notificationPermission === 'default') {
-      await requestNotificationPermission();
-    }
-    
     if (machines[machine].status === 'available') {
       // Set max time limits
-      const maxTime = machine === 'washer' ? 60 : 120;
-      const cycleTime = parseInt(prompt(`Enter estimated cycle time in minutes (max ${maxTime}):`, '30'));
+      const maxTime = machine === 'washer' ? 30 : 60;
+      const cycleTime = parseInt(prompt(`Enter cycle time (1 load ~${maxTime} mins):`, '30'));
       
       // Validate time input
       if (cycleTime > 0 && cycleTime <= maxTime) {
@@ -360,12 +195,6 @@ const LaundryTrackerDashboard = () => {
         
         try {
           await updateMachineInDatabase(machine, updatedMachine);
-          
-          // Reset notification flags
-          setNotifications(prev => ({
-            ...prev,
-            [machine]: { tenMinWarning: false, complete: false }
-          }));
           
           // Optimistic update
           setMachines(prevMachines => ({
@@ -407,12 +236,6 @@ const LaundryTrackerDashboard = () => {
           try {
             await updateMachineInDatabase(machineType, updatedMachine);
             
-            // Reset notification flags
-            setNotifications(prev => ({
-              ...prev,
-              [machineType]: { tenMinWarning: false, complete: false }
-            }));
-            
             // Optimistic update
             setMachines(prevMachines => ({
               ...prevMachines,
@@ -432,12 +255,6 @@ const LaundryTrackerDashboard = () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-
-  // Helper function to format notification timestamp
-  const formatNotificationTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
   
   if (loading) {
     return (
@@ -450,7 +267,7 @@ const LaundryTrackerDashboard = () => {
   return (
     <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Laundry Status</h1>
+        <h1 className="text-2xl font-bold">Laundry Tracker</h1>
         <button 
           onClick={() => setShowHowToUse(true)}
           className="text-blue-500 hover:text-blue-700 text-sm flex items-center"
@@ -468,74 +285,11 @@ const LaundryTrackerDashboard = () => {
         onClose={() => setShowHowToUse(false)} 
       />
       
-      {/* In-app notifications */}
-      {inAppNotifications.length > 0 && (
-        <div className="mb-4">
-          {inAppNotifications.map(notification => (
-            <div 
-              key={notification.id} 
-              className="flex justify-between items-start p-3 mb-2 bg-blue-50 border-l-4 border-blue-500 rounded shadow-sm"
-            >
-              <div>
-                <div className="font-medium">
-                  {notification.title} Alert
-                </div>
-                <div className="text-sm">{notification.message}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {formatNotificationTime(notification.timestamp)}
-                </div>
-              </div>
-              <button 
-                onClick={() => dismissNotification(notification.id)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      
       {currentUser && (
         <div className="mb-4 text-sm bg-blue-50 p-3 rounded">
           <div className="flex justify-between items-center">
             <p className="font-semibold">{currentUser.name}</p>
-            
-            <div className="flex items-center space-x-2">
-              {browserNotificationsSupported && notificationPermission !== 'granted' ? (
-                <button
-                  onClick={requestNotificationPermission}
-                  className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded"
-                >
-                  Enable Notifications
-                </button>
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <span className={`text-xs ${notificationsEnabled ? 'text-green-600' : 'text-gray-500'}`}>
-                    {browserNotificationsSupported ? 'Notifications' : 'In-app Alerts'}: {notificationsEnabled ? 'ON' : 'OFF'}
-                  </span>
-                  
-                  {/* Toggle Switch */}
-                  <button 
-                    onClick={toggleNotifications} 
-                    className={`relative inline-flex items-center h-5 rounded-full w-10 transition-colors focus:outline-none ${notificationsEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
-                  >
-                    <span
-                      className={`inline-block w-4 h-4 transform transition-transform bg-white rounded-full ${notificationsEnabled ? 'translate-x-5' : 'translate-x-1'}`}
-                    />
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
-          
-          {!browserNotificationsSupported && notificationsEnabled && (
-            <p className="text-xs text-gray-600 mt-1">
-              Your browser doesn't support notifications - using in-app alerts instead
-            </p>
-          )}
         </div>
       )}
       
@@ -543,7 +297,7 @@ const LaundryTrackerDashboard = () => {
         {/* Washer */}
         <div className="border rounded-lg overflow-hidden">
           <div className={`p-3 text-white font-semibold ${getStatusColor(machines.washer.status)}`}>
-            Washer (Max 60 min)
+            Washer
           </div>
           <div className="p-4">
             <div className="flex justify-between items-center">
@@ -586,9 +340,6 @@ const LaundryTrackerDashboard = () => {
                 </div>
               ) : (
                 <div className="flex flex-col items-end">
-                  <div className="text-gray-500 text-sm mb-1">
-                    Available in {formatTime(machines.washer.timeRemaining)}
-                  </div>
                   {canUserInteract('washer') ? (
                     <button 
                       onClick={() => handleReleaseMachine('washer')}
@@ -608,7 +359,7 @@ const LaundryTrackerDashboard = () => {
         {/* Dryer */}
         <div className="border rounded-lg overflow-hidden">
           <div className={`p-3 text-white font-semibold ${getStatusColor(machines.dryer.status)}`}>
-            Dryer (Max 120 min)
+            Dryer
           </div>
           <div className="p-4">
             <div className="flex justify-between items-center">
@@ -651,9 +402,6 @@ const LaundryTrackerDashboard = () => {
                 </div>
               ) : (
                 <div className="flex flex-col items-end">
-                  <div className="text-gray-500 text-sm mb-1">
-                    Available in {formatTime(machines.dryer.timeRemaining)}
-                  </div>
                   {canUserInteract('dryer') ? (
                     <button 
                       onClick={() => handleReleaseMachine('dryer')}

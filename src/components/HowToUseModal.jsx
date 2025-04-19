@@ -30,11 +30,13 @@ const HowToUseModal = ({ isOpen, onClose }) => {
             </button>
           </div>
         </div>
+        <div className="p-3 m-2 bg-blue-50 rounded-md border border-blue-100">
+          <p className="text-sm"><strong>This system only works if everyone uses it.</strong> Tell your friends about the app so we can all benefit! The more people who use it, the more accurate it becomes.</p>
+        </div>
         <div className="p-4">
           <h3 className="font-semibold text-base mb-2">Getting Started</h3>
           <ol className="list-decimal pl-5 mb-4 space-y-1 text-sm">
             <li>Enter your name when first visiting the app</li>
-            <li>Enable notifications to get alerts when your laundry is done</li>
           </ol>
           
           <h3 className="font-semibold text-base mb-2">Machine Status Colors</h3>
@@ -44,25 +46,19 @@ const HowToUseModal = ({ isOpen, onClose }) => {
             <li><span className="inline-block w-3 h-3 bg-yellow-500 rounded-full mr-2"></span> <strong>Yellow</strong>: Laundry cycle is complete, waiting for pickup</li>
           </ul>
           
-          <h3 className="font-semibold text-base mb-2">Using a Machine</h3>
+          <h3 className="font-semibold text-base mb-2">Instructions</h3>
           <ol className="list-decimal pl-5 mb-4 space-y-1 text-sm">
             <li><strong>Claim a Machine</strong>: Click "Claim" on an available machine and enter the cycle time</li>
             <li><strong>During Use</strong>: The app will count down remaining time</li>
-            <li><strong>Notifications</strong>: You'll get alerts at 10 minutes remaining and when complete</li>
-            <li><strong>Finishing Up</strong>: Click "Pick Up" when you've collected your laundry</li>
+            <li><strong>Finishing Up</strong>: Click "Pick Up" when you've collected your laundry or click "Extend" if you need more time</li>
           </ol>
           
           <h3 className="font-semibold text-base mb-2">Important Notes</h3>
           <ul className="list-disc pl-5 mb-4 space-y-1 text-sm">
             <li>Only the person who claimed a machine can release it</li>
-            <li>The washer has a max cycle time of 60 minutes</li>
-            <li>The dryer has a max cycle time of 120 minutes</li>
             <li>You can release a machine early if needed</li>
+            <li>Machine will automatically be released  15 minutes after cycle ends</li>
           </ul>
-          
-          <div className="p-3 mt-2 bg-blue-50 rounded-md border border-blue-100">
-            <p className="text-sm"><strong>This system only works if everyone uses it.</strong> Tell your friends about the app so we can all benefit! The more people who use it, the more accurate it becomes.</p>
-          </div>
         </div>
         <div className="p-3 border-t flex justify-end">
           <button
