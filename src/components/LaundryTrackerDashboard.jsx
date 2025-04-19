@@ -4,12 +4,14 @@ import HowToUseModal from './HowToUseModal';
 
 const LaundryTrackerDashboard = () => {
   const [machines, setMachines] = useState({
-    washer: { status: 'available', user: null, userId: null, timeRemaining: 0 },
-    dryer: { status: 'available', user: null, userId: null, timeRemaining: 0 }
+    washer: { status: 'available', user: null, userId: null, timeRemaining: 0, completeTimestamp: null },
+    dryer: { status: 'available', user: null, userId: null, timeRemaining: 0, completeTimestamp: null }
   });
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [showHowToUse, setShowHowToUse] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const notificationTimeoutRef = useRef(null);
 
   // Set up user identity on component mount
   useEffect(() => {
@@ -50,7 +52,46 @@ const LaundryTrackerDashboard = () => {
     };
   }, []);
 
-  // Timer effect to decrease remaining time and update database
+  // Monitor machines' status and show notifications
+  useEffect(() => {
+    if (loading) return;
+
+    const monitorTimer = setInterval(() => {
+      const now = Date.now();
+      const updatedMachines = { ...machines };
+      let shouldUpdate = false;
+      
+      // Check for machines about to be auto-released
+      Object.entries(updatedMachines).forEach(([machineType, machine]) => {
+        if (machine.status === 'complete' && machine.completeTimestamp) {
+          const minutesSinceComplete = (now - machine.completeTimestamp) / (1000 * 60);
+          const minutesRemaining = 15 - minutesSinceComplete;
+          
+          // Show notification when 5 minutes and 1 minute remain
+          if (Math.floor(minutesRemaining) === 5 && Math.ceil(minutesRemaining % 1 * 60) === 0) {
+            addNotification(`${machineType.charAt(0).toUpperCase() + machineType.slice(1)} will be auto-released in 5 minutes!`, 'warning');
+          } else if (Math.floor(minutesRemaining) === 1 && Math.ceil(minutesRemaining % 1 * 60) === 0) {
+            addNotification(`${machineType.charAt(0).toUpperCase() + machineType.slice(1)} will be auto-released in 1 minute!`, 'warning');
+          }
+          
+          // Update UI timer
+          updatedMachines[machineType] = {
+            ...machine,
+            autoReleaseIn: Math.max(0, Math.floor(minutesRemaining))
+          };
+          shouldUpdate = true;
+        }
+      });
+      
+      if (shouldUpdate) {
+        setMachines(updatedMachines);
+      }
+    }, 1000);
+
+    return () => clearInterval(monitorTimer);
+  }, [loading, machines]);
+
+  // Timer effect for in-use machines
   useEffect(() => {
     if (loading) return;
     
@@ -64,7 +105,15 @@ const LaundryTrackerDashboard = () => {
           
           if (updatedMachines.washer.timeRemaining === 0) {
             updatedMachines.washer.status = 'complete';
+            updatedMachines.washer.completeTimestamp = Date.now();
             updateMachineInDatabase('washer', updatedMachines.washer);
+            
+            // Show notification when cycle completes
+            if (updatedMachines.washer.userId === currentUser?.id) {
+              addNotification('Your washer cycle is complete!', 'success');
+            } else {
+              addNotification(`${updatedMachines.washer.user}'s washer cycle is complete!`, 'info');
+            }
           } else if (updatedMachines.washer.timeRemaining % 15 === 0) {
             // Update database every 15 seconds to reduce writes
             updateMachineInDatabase('washer', updatedMachines.washer);
@@ -77,7 +126,15 @@ const LaundryTrackerDashboard = () => {
           
           if (updatedMachines.dryer.timeRemaining === 0) {
             updatedMachines.dryer.status = 'complete';
+            updatedMachines.dryer.completeTimestamp = Date.now();
             updateMachineInDatabase('dryer', updatedMachines.dryer);
+            
+            // Show notification when cycle completes
+            if (updatedMachines.dryer.userId === currentUser?.id) {
+              addNotification('Your dryer cycle is complete!', 'success');
+            } else {
+              addNotification(`${updatedMachines.dryer.user}'s dryer cycle is complete!`, 'info');
+            }
           } else if (updatedMachines.dryer.timeRemaining % 15 === 0) {
             // Update database every 15 seconds to reduce writes
             updateMachineInDatabase('dryer', updatedMachines.dryer);
@@ -93,18 +150,51 @@ const LaundryTrackerDashboard = () => {
   }, [loading, currentUser]);
   
   const handleRealtimeUpdate = (payload) => {
-    const { new: updatedMachine } = payload;
+    const { new: updatedMachine, old: previousMachine } = payload;
+    
     if (updatedMachine) {
+      // Check if a machine status changed from complete to available (auto-released)
+      if (previousMachine && 
+          previousMachine.status === 'complete' && 
+          updatedMachine.status === 'available' &&
+          previousMachine.user_id) {
+        
+        // Show notification about auto-release
+        const machineName = updatedMachine.machine_type.charAt(0).toUpperCase() + updatedMachine.machine_type.slice(1);
+        const userName = previousMachine.user_name;
+        addNotification(`${machineName} has been auto-released! ${userName}'s laundry may still be inside.`, 'info');
+      }
+      
       setMachines(prevMachines => ({
         ...prevMachines,
         [updatedMachine.machine_type]: {
           status: updatedMachine.status,
           user: updatedMachine.user_name,
           userId: updatedMachine.user_id,
-          timeRemaining: updatedMachine.time_remaining
+          timeRemaining: updatedMachine.time_remaining,
+          completeTimestamp: updatedMachine.complete_timestamp ? 
+            new Date(updatedMachine.complete_timestamp).getTime() : null
         }
       }));
     }
+  };
+
+  const addNotification = (message, type = 'info') => {
+    const id = Date.now();
+    setNotifications(prev => [...prev, { id, message, type }]);
+    
+    // Auto-remove notification after 5 seconds
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+    
+    notificationTimeoutRef.current = setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const removeNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   const fetchMachines = async () => {
@@ -125,7 +215,9 @@ const LaundryTrackerDashboard = () => {
             status: machine.status,
             user: machine.user_name,
             userId: machine.user_id,
-            timeRemaining: machine.time_remaining
+            timeRemaining: machine.time_remaining,
+            completeTimestamp: machine.complete_timestamp ? 
+              new Date(machine.complete_timestamp).getTime() : null
           };
         });
         setMachines(machinesObj);
@@ -147,6 +239,8 @@ const LaundryTrackerDashboard = () => {
           user_name: machineData.user,
           user_id: machineData.userId,
           time_remaining: machineData.timeRemaining,
+          complete_timestamp: machineData.completeTimestamp ? 
+            new Date(machineData.completeTimestamp).toISOString() : null,
           last_updated: new Date().toISOString()
         })
         .eq('machine_type', machineType);
@@ -163,6 +257,15 @@ const LaundryTrackerDashboard = () => {
       case 'in-use': return 'bg-red-500';
       case 'complete': return 'bg-yellow-500';
       default: return 'bg-gray-300';
+    }
+  };
+  
+  const getNotificationColor = (type) => {
+    switch(type) {
+      case 'success': return 'bg-green-100 border-green-500 text-green-700';
+      case 'warning': return 'bg-yellow-100 border-yellow-500 text-yellow-700';
+      case 'error': return 'bg-red-100 border-red-500 text-red-700';
+      default: return 'bg-blue-100 border-blue-500 text-blue-700';
     }
   };
   
@@ -190,7 +293,8 @@ const LaundryTrackerDashboard = () => {
           status: 'in-use',
           user: currentUser.name,
           userId: currentUser.id,
-          timeRemaining: cycleTime * 60 // Convert to seconds
+          timeRemaining: cycleTime * 60, // Convert to seconds
+          completeTimestamp: null
         };
         
         try {
@@ -201,6 +305,9 @@ const LaundryTrackerDashboard = () => {
             ...prevMachines,
             [machine]: updatedMachine
           }));
+          
+          // Show notification
+          addNotification(`You claimed the ${machine}!`, 'success');
         } catch (error) {
           alert('Failed to claim machine. Please try again.');
         }
@@ -210,7 +317,7 @@ const LaundryTrackerDashboard = () => {
     }
   };
 
-  // NEW FUNCTION: Handle extending time for a completed machine
+  // Handle extending time for a completed machine
   const handleExtendTime = async (machineType) => {
     if (!currentUser) return;
     
@@ -231,7 +338,8 @@ const LaundryTrackerDashboard = () => {
           status: 'in-use',
           user: machine.user,
           userId: machine.userId,
-          timeRemaining: extensionTime * 60 // Convert to seconds
+          timeRemaining: extensionTime * 60, // Convert to seconds
+          completeTimestamp: null
         };
         
         try {
@@ -242,6 +350,9 @@ const LaundryTrackerDashboard = () => {
             ...prevMachines,
             [machineType]: updatedMachine
           }));
+          
+          // Show notification
+          addNotification(`Extended ${machineType} cycle for ${extensionTime} minutes.`, 'success');
         } catch (error) {
           alert('Failed to extend time. Please try again.');
         }
@@ -269,7 +380,8 @@ const LaundryTrackerDashboard = () => {
             status: 'available',
             user: null,
             userId: null,
-            timeRemaining: 0
+            timeRemaining: 0,
+            completeTimestamp: null
           };
           
           try {
@@ -280,6 +392,9 @@ const LaundryTrackerDashboard = () => {
               ...prevMachines,
               [machineType]: updatedMachine
             }));
+            
+            // Show notification
+            addNotification(`You released the ${machineType}.`, 'success');
           } catch (error) {
             alert('Failed to release machine. Please try again.');
           }
@@ -294,6 +409,22 @@ const LaundryTrackerDashboard = () => {
     const seconds = totalSeconds % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // Helper function to calculate minutes until auto-release
+  const getAutoReleaseCountdown = (completeTimestamp) => {
+    if (!completeTimestamp) return 0;
+    
+    const minutesSinceComplete = (Date.now() - completeTimestamp) / (1000 * 60);
+    const minutesRemaining = Math.max(0, 2 - Math.floor(minutesSinceComplete));
+    return minutesRemaining;
+  };
+
+  // Helper function to get time formatting
+  const getTimeRemainingStyle = (minutes) => {
+    if (minutes <= 2) return 'text-red-600 font-bold animate-pulse';
+    if (minutes <= 5) return 'text-orange-600 font-semibold';
+    return 'text-orange-600';
+  };
   
   if (loading) {
     return (
@@ -304,7 +435,27 @@ const LaundryTrackerDashboard = () => {
   }
   
   return (
-    <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg">
+    <div className="max-w-md mx-auto p-4 bg-white shadow-lg rounded-lg relative">
+      {/* Notification system */}
+      <div className="fixed top-4 right-4 left-4 z-50 flex flex-col gap-2 pointer-events-none md:w-96 md:left-auto">
+        {notifications.map(notification => (
+          <div 
+            key={notification.id} 
+            className={`${getNotificationColor(notification.type)} border-l-4 p-3 shadow-lg rounded pointer-events-auto flex justify-between items-center`}
+          >
+            <span>{notification.message}</span>
+            <button 
+              onClick={() => removeNotification(notification.id)} 
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Laundry Tracker</h1>
         <button 
@@ -352,6 +503,13 @@ const LaundryTrackerDashboard = () => {
                     Time remaining: {formatTime(machines.washer.timeRemaining)}
                   </p>
                 )}
+                {machines.washer.status === 'complete' && machines.washer.completeTimestamp && (
+                  <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.washer.completeTimestamp))}`}>
+                    <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.dryer.completeTimestamp))}`}>
+                    Ready for pickup
+                    </p>
+                  </p>
+                )}
               </div>
               
               {machines.washer.status === 'available' ? (
@@ -364,8 +522,7 @@ const LaundryTrackerDashboard = () => {
                 </button>
               ) : machines.washer.status === 'complete' ? (
                 <div className="flex flex-col items-end">
-                  <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
-                  {/* New Extend button */}
+                  {/* Extend button */}
                   {canUserInteract('washer') && (
                     <button 
                       onClick={() => handleExtendTime('washer')}
@@ -423,6 +580,11 @@ const LaundryTrackerDashboard = () => {
                     Time remaining: {formatTime(machines.dryer.timeRemaining)}
                   </p>
                 )}
+                {machines.dryer.status === 'complete' && machines.dryer.completeTimestamp && (
+                  <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.dryer.completeTimestamp))}`}>
+                    Ready for pickup
+                  </p>
+                )}
               </div>
               
               {machines.dryer.status === 'available' ? (
@@ -435,8 +597,7 @@ const LaundryTrackerDashboard = () => {
                 </button>
               ) : machines.dryer.status === 'complete' ? (
                 <div className="flex flex-col items-end">
-                  <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
-                  {/* New Extend button */}
+                  {/* Extend button */}
                   {canUserInteract('dryer') && (
                     <button 
                       onClick={() => handleExtendTime('dryer')}
