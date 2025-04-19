@@ -54,7 +54,7 @@ const HowToUseModal = ({ isOpen, onClose }) => {
           <ul className="list-disc pl-5 mb-4 space-y-2 text-sm">
             <li>Only the person who claimed a machine can release it</li>
             <li>You can release a machine early if needed</li>
-            <li>Machines will automatically be released 15 minutes after cycle ends</li>
+            <li>Machines will automatically be released 30 minutes after cycle ends</li>
           </ul>
         </div>
         <div className="p-3 border-t flex justify-end">
