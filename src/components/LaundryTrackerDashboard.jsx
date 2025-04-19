@@ -210,6 +210,45 @@ const LaundryTrackerDashboard = () => {
     }
   };
 
+  // NEW FUNCTION: Handle extending time for a completed machine
+  const handleExtendTime = async (machineType) => {
+    if (!currentUser) return;
+    
+    if (['washer', 'dryer'].includes(machineType)) {
+      const machine = machines[machineType];
+      
+      // Check if the current user owns this machine
+      if (machine.userId !== currentUser.id) {
+        alert(`Only ${machine.user} can extend the ${machineType} time.`);
+        return;
+      }
+      
+      // Only allow extension if the machine is in complete status
+      if (machine.status === 'complete') {
+        const extensionTime = machineType === 'washer' ? 30 : 60; // 30 mins for washer, 60 for dryer
+        
+        const updatedMachine = {
+          status: 'in-use',
+          user: machine.user,
+          userId: machine.userId,
+          timeRemaining: extensionTime * 60 // Convert to seconds
+        };
+        
+        try {
+          await updateMachineInDatabase(machineType, updatedMachine);
+          
+          // Optimistic update
+          setMachines(prevMachines => ({
+            ...prevMachines,
+            [machineType]: updatedMachine
+          }));
+        } catch (error) {
+          alert('Failed to extend time. Please try again.');
+        }
+      }
+    }
+  };
+
   const handleReleaseMachine = async (machineType) => {
     if (!currentUser) return;
     
@@ -326,6 +365,15 @@ const LaundryTrackerDashboard = () => {
               ) : machines.washer.status === 'complete' ? (
                 <div className="flex flex-col items-end">
                   <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
+                  {/* New Extend button */}
+                  {canUserInteract('washer') && (
+                    <button 
+                      onClick={() => handleExtendTime('washer')}
+                      className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm mb-2"
+                    >
+                      Extend 30 min
+                    </button>
+                  )}
                   <button 
                     onClick={() => handleReleaseMachine('washer')}
                     className={`px-3 py-1 rounded text-sm ${
@@ -388,6 +436,15 @@ const LaundryTrackerDashboard = () => {
               ) : machines.dryer.status === 'complete' ? (
                 <div className="flex flex-col items-end">
                   <div className="text-yellow-600 font-medium mb-1">Ready for pickup</div>
+                  {/* New Extend button */}
+                  {canUserInteract('dryer') && (
+                    <button 
+                      onClick={() => handleExtendTime('dryer')}
+                      className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm mb-2"
+                    >
+                      Extend 60 min
+                    </button>
+                  )}
                   <button 
                     onClick={() => handleReleaseMachine('dryer')}
                     className={`px-3 py-1 rounded text-sm ${
