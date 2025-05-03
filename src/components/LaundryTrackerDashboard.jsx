@@ -4,8 +4,24 @@ import HowToUseModal from './HowToUseModal';
 
 const LaundryTrackerDashboard = () => {
   const [machines, setMachines] = useState({
-    washer: { status: 'available', user: null, userId: null, timeRemaining: 0, completeTimestamp: null },
-    dryer: { status: 'available', user: null, userId: null, timeRemaining: 0, completeTimestamp: null }
+    washer: { 
+      status: 'available', 
+      user: null, 
+      userId: null, 
+      startTimestamp: null,
+      cycleDurationSeconds: 0,
+      timeRemaining: 0, 
+      completeTimestamp: null 
+    },
+    dryer: { 
+      status: 'available', 
+      user: null, 
+      userId: null, 
+      startTimestamp: null,
+      cycleDurationSeconds: 0,
+      timeRemaining: 0, 
+      completeTimestamp: null 
+    }
   });
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
@@ -91,63 +107,59 @@ const LaundryTrackerDashboard = () => {
     return () => clearInterval(monitorTimer);
   }, [loading, machines]);
 
-  // Timer effect for in-use machines
+  // Client-side timer effect to update UI countdown
   useEffect(() => {
     if (loading) return;
     
-    const timer = setInterval(async () => {
+    const timer = setInterval(() => {
       setMachines(prevMachines => {
         const updatedMachines = { ...prevMachines };
+        let shouldUpdate = false;
         
-        // Washer timer
+        // Update washer time
         if (updatedMachines.washer.status === 'in-use' && updatedMachines.washer.timeRemaining > 0) {
           updatedMachines.washer.timeRemaining -= 1;
+          shouldUpdate = true;
           
+          // Check if cycle just completed
           if (updatedMachines.washer.timeRemaining === 0) {
             updatedMachines.washer.status = 'complete';
             updatedMachines.washer.completeTimestamp = Date.now();
-            updateMachineInDatabase('washer', updatedMachines.washer);
-            
-            // Show notification when cycle completes
-            if (updatedMachines.washer.userId === currentUser?.id) {
-              addNotification('Your washer cycle is complete!', 'success');
-            } else {
-              addNotification(`${updatedMachines.washer.user}'s washer cycle is complete!`, 'info');
-            }
-          } else if (updatedMachines.washer.timeRemaining % 15 === 0) {
-            // Update database every 15 seconds to reduce writes
-            updateMachineInDatabase('washer', updatedMachines.washer);
+            updateMachineStatusToComplete('washer', updatedMachines.washer.user, updatedMachines.washer.userId);
           }
         }
         
-        // Dryer timer
+        // Update dryer time
         if (updatedMachines.dryer.status === 'in-use' && updatedMachines.dryer.timeRemaining > 0) {
           updatedMachines.dryer.timeRemaining -= 1;
+          shouldUpdate = true;
           
+          // Check if cycle just completed
           if (updatedMachines.dryer.timeRemaining === 0) {
             updatedMachines.dryer.status = 'complete';
             updatedMachines.dryer.completeTimestamp = Date.now();
-            updateMachineInDatabase('dryer', updatedMachines.dryer);
-            
-            // Show notification when cycle completes
-            if (updatedMachines.dryer.userId === currentUser?.id) {
-              addNotification('Your dryer cycle is complete!', 'success');
-            } else {
-              addNotification(`${updatedMachines.dryer.user}'s dryer cycle is complete!`, 'info');
-            }
-          } else if (updatedMachines.dryer.timeRemaining % 15 === 0) {
-            // Update database every 15 seconds to reduce writes
-            updateMachineInDatabase('dryer', updatedMachines.dryer);
+            updateMachineStatusToComplete('dryer', updatedMachines.dryer.user, updatedMachines.dryer.userId);
           }
         }
         
-        return updatedMachines;
+        return shouldUpdate ? updatedMachines : prevMachines;
       });
     }, 1000);
 
-    // Cleanup interval on component unmount
     return () => clearInterval(timer);
   }, [loading, currentUser]);
+
+  // Helper function to calculate remaining time based on server timestamps
+  const calculateTimeRemaining = (startTimestamp, durationSeconds) => {
+    if (!startTimestamp) return 0;
+    
+    const startTime = new Date(startTimestamp).getTime();
+    const now = Date.now();
+    const elapsedSeconds = Math.floor((now - startTime) / 1000);
+    const remainingSeconds = Math.max(0, durationSeconds - elapsedSeconds);
+    
+    return remainingSeconds;
+  };
   
   const handleRealtimeUpdate = (payload) => {
     const { new: updatedMachine, old: previousMachine } = payload;
@@ -165,13 +177,38 @@ const LaundryTrackerDashboard = () => {
         addNotification(`${machineName} has been auto-released! ${userName}'s laundry may still be inside.`, 'info');
       }
       
+      // Calculate current remaining time based on server timestamps
+      let timeRemaining = 0;
+      if (updatedMachine.status === 'in-use' && updatedMachine.start_timestamp) {
+        timeRemaining = calculateTimeRemaining(
+          updatedMachine.start_timestamp,
+          updatedMachine.cycle_duration_seconds
+        );
+        
+        // If time has actually run out, treat as complete even if DB hasn't updated yet
+        if (timeRemaining === 0) {
+          updatedMachine.status = 'complete';
+          if (!updatedMachine.complete_timestamp) {
+            updatedMachine.complete_timestamp = new Date().toISOString();
+            // Update DB to mark as complete
+            updateMachineStatusToComplete(
+              updatedMachine.machine_type,
+              updatedMachine.user_name,
+              updatedMachine.user_id
+            );
+          }
+        }
+      }
+      
       setMachines(prevMachines => ({
         ...prevMachines,
         [updatedMachine.machine_type]: {
           status: updatedMachine.status,
           user: updatedMachine.user_name,
           userId: updatedMachine.user_id,
-          timeRemaining: updatedMachine.time_remaining,
+          startTimestamp: updatedMachine.start_timestamp,
+          cycleDurationSeconds: updatedMachine.cycle_duration_seconds,
+          timeRemaining: timeRemaining,
           completeTimestamp: updatedMachine.complete_timestamp ? 
             new Date(updatedMachine.complete_timestamp).getTime() : null
         }
@@ -211,13 +248,41 @@ const LaundryTrackerDashboard = () => {
       if (data && data.length > 0) {
         const machinesObj = {};
         data.forEach(machine => {
+          // Calculate current time remaining
+          let timeRemaining = 0;
+          let status = machine.status;
+          let completeTimestamp = machine.complete_timestamp;
+          
+          if (status === 'in-use' && machine.start_timestamp) {
+            timeRemaining = calculateTimeRemaining(
+              machine.start_timestamp,
+              machine.cycle_duration_seconds
+            );
+            
+            // If time has run out but status hasn't been updated
+            if (timeRemaining === 0) {
+              status = 'complete';
+              if (!completeTimestamp) {
+                completeTimestamp = new Date().toISOString();
+                // Update DB to mark as complete
+                updateMachineStatusToComplete(
+                  machine.machine_type,
+                  machine.user_name,
+                  machine.user_id
+                );
+              }
+            }
+          }
+          
           machinesObj[machine.machine_type] = {
-            status: machine.status,
+            status: status,
             user: machine.user_name,
             userId: machine.user_id,
-            timeRemaining: machine.time_remaining,
-            completeTimestamp: machine.complete_timestamp ? 
-              new Date(machine.complete_timestamp).getTime() : null
+            startTimestamp: machine.start_timestamp,
+            cycleDurationSeconds: machine.cycle_duration_seconds,
+            timeRemaining: timeRemaining,
+            completeTimestamp: completeTimestamp ? 
+              new Date(completeTimestamp).getTime() : null
           };
         });
         setMachines(machinesObj);
@@ -229,6 +294,31 @@ const LaundryTrackerDashboard = () => {
       setLoading(false);
     }
   };
+  
+  // Function to update database when machine completes
+  const updateMachineStatusToComplete = async (machineType, userName, userId) => {
+    try {
+      const { error } = await supabase
+        .from('machines')
+        .update({
+          status: 'complete',
+          complete_timestamp: new Date().toISOString(),
+          last_updated: new Date().toISOString()
+        })
+        .eq('machine_type', machineType);
+        
+      if (error) throw error;
+      
+      // Show notification
+      if (userId === currentUser?.id) {
+        addNotification(`Your ${machineType} cycle is complete!`, 'success');
+      } else {
+        addNotification(`${userName}'s ${machineType} cycle is complete!`, 'info');
+      }
+    } catch (error) {
+      console.error(`Error updating ${machineType} to complete:`, error);
+    }
+  };
 
   const updateMachineInDatabase = async (machineType, machineData) => {
     try {
@@ -238,7 +328,8 @@ const LaundryTrackerDashboard = () => {
           status: machineData.status,
           user_name: machineData.user,
           user_id: machineData.userId,
-          time_remaining: machineData.timeRemaining,
+          start_timestamp: machineData.startTimestamp,
+          cycle_duration_seconds: machineData.cycleDurationSeconds,
           complete_timestamp: machineData.completeTimestamp ? 
             new Date(machineData.completeTimestamp).toISOString() : null,
           last_updated: new Date().toISOString()
@@ -289,11 +380,15 @@ const LaundryTrackerDashboard = () => {
       
       // Validate time input
       if (cycleTime > 0 && cycleTime <= maxTime) {
+        const now = new Date();
+        
         const updatedMachine = {
           status: 'in-use',
           user: currentUser.name,
           userId: currentUser.id,
-          timeRemaining: cycleTime * 60, // Convert to seconds
+          startTimestamp: now.toISOString(),
+          cycleDurationSeconds: cycleTime * 60, // Convert to seconds
+          timeRemaining: cycleTime * 60, // For UI display
           completeTimestamp: null
         };
         
@@ -333,12 +428,15 @@ const LaundryTrackerDashboard = () => {
       // Only allow extension if the machine is in complete status
       if (machine.status === 'complete') {
         const extensionTime = machineType === 'washer' ? 30 : 60; // 30 mins for washer, 60 for dryer
+        const now = new Date();
         
         const updatedMachine = {
           status: 'in-use',
           user: machine.user,
           userId: machine.userId,
-          timeRemaining: extensionTime * 60, // Convert to seconds
+          startTimestamp: now.toISOString(),
+          cycleDurationSeconds: extensionTime * 60,
+          timeRemaining: extensionTime * 60,
           completeTimestamp: null
         };
         
@@ -380,6 +478,8 @@ const LaundryTrackerDashboard = () => {
             status: 'available',
             user: null,
             userId: null,
+            startTimestamp: null,
+            cycleDurationSeconds: 0,
             timeRemaining: 0,
             completeTimestamp: null
           };
@@ -415,7 +515,7 @@ const LaundryTrackerDashboard = () => {
     if (!completeTimestamp) return 0;
     
     const minutesSinceComplete = (Date.now() - completeTimestamp) / (1000 * 60);
-    const minutesRemaining = Math.max(0, 2 - Math.floor(minutesSinceComplete));
+    const minutesRemaining = Math.max(0, 15 - Math.floor(minutesSinceComplete));
     return minutesRemaining;
   };
 
@@ -505,9 +605,7 @@ const LaundryTrackerDashboard = () => {
                 )}
                 {machines.washer.status === 'complete' && machines.washer.completeTimestamp && (
                   <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.washer.completeTimestamp))}`}>
-                    <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.dryer.completeTimestamp))}`}>
-                    Ready for pickup
-                    </p>
+                    Ready for pickup (auto-release in {getAutoReleaseCountdown(machines.washer.completeTimestamp)} min)
                   </p>
                 )}
               </div>
@@ -582,7 +680,7 @@ const LaundryTrackerDashboard = () => {
                 )}
                 {machines.dryer.status === 'complete' && machines.dryer.completeTimestamp && (
                   <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.dryer.completeTimestamp))}`}>
-                    Ready for pickup
+                    Ready for pickup (auto-release in {getAutoReleaseCountdown(machines.dryer.completeTimestamp)} min)
                   </p>
                 )}
               </div>
