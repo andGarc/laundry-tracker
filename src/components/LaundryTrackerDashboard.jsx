@@ -605,7 +605,7 @@ const LaundryTrackerDashboard = () => {
                 )}
                 {machines.washer.status === 'complete' && machines.washer.completeTimestamp && (
                   <p className={`text-xs ${getTimeRemainingStyle(getAutoReleaseCountdown(machines.washer.completeTimestamp))}`}>
-                    Ready for pickup <br/>(Machine will be auto-release soon)
+                    Ready for pickup <br/>(Machine will auto-release soon)
                   </p>
                 )}
               </div>
