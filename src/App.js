@@ -11,7 +11,7 @@ function App() {
         </div>
         <div className="text-center text-gray-500 text-sm">
           <a href="mailto:garcia.andres@proton.me" className="hover:underline">
-            Contact
+            Built by Andres Garcia © 2026
           </a>
         </div>
       </div>
